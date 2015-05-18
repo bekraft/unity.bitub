@@ -147,7 +147,7 @@ namespace UnityBitub.CPI
             set
             {
                 m_fileName = value;
-                Initialize(value);
+                Preprocess(value);
             }
         }
 
@@ -211,7 +211,7 @@ namespace UnityBitub.CPI
             m_materialSectionReader.Close();
             m_objectSectionReader.Close();
 
-            CPIComplex.MaterialList = m_materialCache.Values.ToArray<MaterialID>();
+            PostprocessGeometry();
 
             return false;
         }
@@ -225,7 +225,7 @@ namespace UnityBitub.CPI
         /// Reads the properties stepwise.
         /// </summary>
         /// <returns></returns>
-        public bool ReadPropertiesStepwise()
+        private bool ReadPropertiesSingleStep()
         {
             bool isDone;
 
@@ -247,9 +247,17 @@ namespace UnityBitub.CPI
 
             m_propertySectionReader.Close();
 
-            FinalizesProperties();
-
             return false;
+        }
+
+        public bool ReadPropertiesStepwise()
+        {
+            bool result;
+            if(!(result = ReadPropertiesSingleStep()))
+            {
+                PostprocessSemantics();
+            }
+            return result;
         }
 
         public void ReadProperties()
@@ -262,20 +270,27 @@ namespace UnityBitub.CPI
             var bw = new BackgroundWorker();
             bw.DoWork += new DoWorkEventHandler(delegate(object o, DoWorkEventArgs args)
             {
-                while (ReadPropertiesStepwise()) ;                
+                while (ReadPropertiesSingleStep()) ;                
             });
 
             bw.RunWorkerCompleted += new RunWorkerCompletedEventHandler(delegate(object o, RunWorkerCompletedEventArgs args)
             {                
                 Debug.Log("Read property section of \"" + Name + "\".");
-                FinalizesProperties();
+                PostprocessSemantics();
             });
 
             bw.RunWorkerAsync();
         }
 
-        private void FinalizesProperties()
+        private void PostprocessGeometry()
         {
+            // overwrite material list
+            CPIComplex.MaterialList = m_materialCache.Values.ToArray<MaterialID>();
+        }
+
+        private void PostprocessSemantics()
+        {
+            // Post process attributes
             Debug.Log("Indexing attribute cache.");
             foreach (string key in m_attributeCache.Keys)
             {
@@ -287,6 +302,49 @@ namespace UnityBitub.CPI
                     CPIComplex.AddAttribute(component, a);
                 }
             }
+
+            var nonConstructives = new ComponentType[] { ComponentType.Opening, ComponentType.Door, ComponentType.Window };
+            // Post process openings and isConstructive
+            Dictionary<string, Material> namedMaterials = new Dictionary<string,Material>();
+            CPIComplex.AcceptVisitor((BuildingComponent component, bool hasChildren) =>
+            {
+                if (System.Array.Exists<ComponentType>(nonConstructives, c => c == component.ComponentType))
+                {
+                    component.IsConstructive = false;
+                    component.gameObject.tag = BuildingComponent.TAG_ISNONCONSTRUCTIVE;
+
+                    var meshRenderers = component.gameObject.GetComponentsInChildren<MeshRenderer>();
+
+                    // Clone matertials => use dictionary => adapt transparency
+                    foreach(MeshRenderer mr in meshRenderers) 
+                    {
+                        if(!namedMaterials.ContainsKey(mr.material.name))
+                        {
+                            var newMaterial = new Material(mr.material);
+                            newMaterial.shader = CPIComplex.ShaderTransparent;
+                            var newColor = new Color(newMaterial.color.r, newMaterial.color.g, newMaterial.color.b);
+
+                            newColor.a = 1.0f - CPIPreferences.TransparencyOfOpenings;
+                            newMaterial.color = newColor;
+
+                            newMaterial.name = "Transparent " + mr.material.name;
+                            mr.sharedMaterial = newMaterial;
+
+                            if(!namedMaterials.ContainsKey(mr.material.name))
+                                namedMaterials.Add(mr.material.name, newMaterial);
+                        }
+                    }
+                    // Don't investigate deeper (since its done by this handler)
+                    return false;
+                }
+
+                // Otherwise is constructive
+                component.IsConstructive = true;
+                component.gameObject.tag = BuildingComponent.TAG_ISCONSTRUCTIVE;
+
+                return true;
+            });
+            
         }
 
         #region XML reader stack
@@ -313,7 +371,7 @@ namespace UnityBitub.CPI
             backgroundReaderThread.RunWorkerAsync(XmlReader.Create(fileName));            
         }
 
-        private void Initialize(string fileName)
+        private void Preprocess(string fileName)
         {
             runAsyncPositioning(fileName, TAG_MATERIALSECTION, (r) => m_materialSectionReader = r);
             runAsyncPositioning(fileName, TAG_ROOTCONTAINER, (r) => m_objectSectionReader = r);
@@ -331,6 +389,9 @@ namespace UnityBitub.CPI
             m_materialCache.Clear();
             m_attributeToRead.Clear();
             m_componentCache.Clear();
+
+            CPIComplex.Name = Name;
+            CPIComplex.Description = Description;
 
             foreach (string a in CPIComplex.AttributeList)
             {
@@ -454,10 +515,16 @@ namespace UnityBitub.CPI
                     ReadMetainfo(reader);
                     break;
                 case TAG_ROOTCONTAINER:
-                    m_sceneStack.Push(GenerateGameObject(reader).gameObject);
+                    var component1 = GenerateGameObject(reader);
+                    m_sceneStack.Push(component1.gameObject);
+                    component1.ComponentType = ComponentType.Container;
+                    component1.IsConstructive = false;
                     break;
                 case TAG_CONTAINER:
-                    m_sceneStack.Push(GenerateGameObject(reader).gameObject);
+                    var component2 = GenerateGameObject(reader);
+                    m_sceneStack.Push(component2.gameObject);
+                    component2.ComponentType = ComponentType.Container;
+                    component2.IsConstructive = false;
                     break;
                 case TAG_OBJECT3D:
                     TotalObjects++;
@@ -602,7 +669,7 @@ namespace UnityBitub.CPI
 
                 o.transform.parent = component.gameObject.transform;
 
-                o.GetComponent<MeshFilter>().name = o.name;
+                o.GetComponent<MeshFilter>().name = component.name;
 
                 // Set material
                 var material = component.Material.Material;
@@ -656,8 +723,6 @@ namespace UnityBitub.CPI
                         case TAG_DATA3D:
 
                             meshBuilder.EndMeshing();
-                            Debug.Log(string.Format("Read {0} triangles in total.", meshBuilder.TotalTriangleCount));
-
                             // return
                             return;
                     }
@@ -755,7 +820,7 @@ namespace UnityBitub.CPI
             MaterialID material;
             if(!m_materialCache.TryGetValue(matID, out material))
             {
-                material = new MaterialID{ ID=matID, Material = new Material(CPIComplex.ShaderOnNewMaterial) };
+                material = new MaterialID{ ID=matID, Material = new Material(CPIComplex.ShaderOpaque) };
                 m_materialCache.Add(matID, material);
             }
 

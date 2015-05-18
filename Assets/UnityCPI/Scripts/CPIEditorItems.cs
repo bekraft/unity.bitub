@@ -16,6 +16,9 @@ namespace UnityBitub.CPI.Editor
     {
         public CPIBuildingComplex TaggedModel { private set; get; }
 
+        /// <summary>
+        /// Initializes. Finds the CPI building complex root by its tag.
+        /// </summary>
         public CPIEditorItems()
         {
             var modelRoot = GameObject.FindGameObjectWithTag(CPIBuildingComplex.TAG);
@@ -60,8 +63,8 @@ namespace UnityBitub.CPI.Editor
         static void HideShowOpenings()
         {
             var editorItems = new CPIEditorItems();
-            editorItems.TaggedModel.AcceptVisitor(delegate(BuildingComponent component, bool hasChildren) {
-
+            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
+            {
                 if (component.ComponentType == ComponentType.Opening) {
 
                     component.gameObject.SetActive(!component.gameObject.activeSelf);
@@ -74,8 +77,8 @@ namespace UnityBitub.CPI.Editor
         static void HideShowSpaces()
         {
             var editorItems = new CPIEditorItems();
-            editorItems.TaggedModel.AcceptVisitor(delegate(BuildingComponent component, bool hasChildren) {
-
+            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
+            {
                 if (component.ComponentType == ComponentType.Space) {
 
                     component.gameObject.SetActive(!component.gameObject.activeSelf);
@@ -84,32 +87,38 @@ namespace UnityBitub.CPI.Editor
             });
         }
 
-        [MenuItem("CPI/Generate rigid bodies")]
+        [MenuItem("CPI/Generate physics")]
         static void ComputeColliders()
         {
             var editorItems = new CPIEditorItems();
-            var invalidTypes = new ComponentType[] { 
-                ComponentType.Door, 
-                ComponentType.Opening, 
-                ComponentType.Window };
 
-            editorItems.TaggedModel.AcceptVisitor(delegate(BuildingComponent component, bool hasChildren)
+            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) =>
             {
-
-                if (System.Array.Exists<ComponentType>(invalidTypes, e => e == component.ComponentType))
+                if (!component.IsConstructive)
                 {
-                    return false;
+                    return true;
                 }
 
-                var meshColliders = component.transform.GetComponentsInChildren<MeshCollider>();
-                foreach (MeshCollider mc in meshColliders)
+                // Search direct children for mesh filters                
+                foreach(Transform t in component.gameObject.transform)
                 {
-                    var rigidBody = mc.gameObject.GetComponent<Rigidbody>();
-                    if (null == rigidBody)
-                        rigidBody = mc.gameObject.AddComponent<Rigidbody>();
+                    var mf = t.gameObject.GetComponent<MeshFilter>();
+                    if(null!=mf)
+                    {
+                        var meshCollider = t.gameObject.GetComponent<MeshCollider>();
+                        if (null == meshCollider)
+                            meshCollider = t.gameObject.AddComponent<MeshCollider>();
 
-                    rigidBody.useGravity = false;
-                    rigidBody.isKinematic = true;
+                        meshCollider.sharedMesh = mf.sharedMesh;
+                        meshCollider.name = "Collider of " + t.gameObject.name;
+
+                        var rigidBody = t.gameObject.GetComponent<Rigidbody>();
+                        if (null == rigidBody)
+                            rigidBody = t.gameObject.AddComponent<Rigidbody>();
+
+                        rigidBody.useGravity = false;
+                        rigidBody.isKinematic = true;
+                    }
                 }
 
                 return true;

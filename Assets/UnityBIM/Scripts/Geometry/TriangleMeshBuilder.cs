@@ -313,7 +313,7 @@ namespace UnityBitub.Geometry
         /// <param name="uv">The UV coordinates</param>
         /// <param name="t">The tangent</param>
         /// <returns>True, if not known before.</returns>
-        private void MapVertex(int id, Vector2 uv, Vector4 t)
+        private void MapVertex(int id, Vector3 n, Vector2 uv, Vector4 t)
         {
             int localIndex = m_buffer.XYZ.Count;
             if (!m_buffer.Index.ContainsKey(id))
@@ -322,6 +322,7 @@ namespace UnityBitub.Geometry
                 return;
 
             m_buffer.XYZ.Add(m_xyz[id]);
+            m_buffer.Normal.Add(n);
             m_buffer.UV.Add(uv);            
             m_buffer.Tangents.Add(t);
         }
@@ -340,6 +341,7 @@ namespace UnityBitub.Geometry
                 return;
             }
 
+            HashSet<Triangle> visitedTriangleSet = new HashSet<Triangle>();
             Queue<int> indexQueue = new Queue<int>();
             var idx = m_triangles.Keys.FirstOrDefault<int>();
             indexQueue.Enqueue(idx);
@@ -351,7 +353,7 @@ namespace UnityBitub.Geometry
             var initialTriangle = m_triangles[idx].First<Triangle>();
             Vector3 ex, ey;
             initialTriangle.ComputeUVs(out ex, out ey, TextureScale);
-            MapVertex(idx, Vector2.zero, new Vector4(ex.x, ex.y, ex.z, -1));
+            MapVertex(idx, initialTriangle.Normal, Vector2.zero, new Vector4(ex.x, ex.y, ex.z, -1));
 
             while(indexQueue.Count > 0)
             {
@@ -363,6 +365,12 @@ namespace UnityBitub.Geometry
 
                 foreach(Triangle t in starOf)
                 {
+                    if (visitedTriangleSet.Contains(t))
+                    {
+                        continue;
+                    }
+                    visitedTriangleSet.Add(t);
+
                     // Compute UVs                    
                     t.ComputeUVs(out ex, out ey, TextureScale);
 
@@ -396,29 +404,23 @@ namespace UnityBitub.Geometry
                     var puv2 = m_xyz[v2] - p0;
 
                     // Build UV coordinates using planar unit vectors and base offset                    
-                    bool isNew = false;
                     if (!m_buffer.Index.ContainsKey(v1))
                     {
                         var uv1 = new Vector2(Vector3.Dot(puv1, ex), Vector3.Dot(puv1, ey)) + uv0;
-                        MapVertex(v1, uv1, new Vector4(ex.x, ex.y, ex.z, -1));
+                        MapVertex(v1, t.Normal, uv1, new Vector4(ex.x, ex.y, ex.z, -1));
                         indexQueue.Enqueue(v1);
                         uvQueue.Enqueue(uv1);
-                        isNew = true;
                     }
                     if (!m_buffer.Index.ContainsKey(v2))
                     {
                         var uv2 = new Vector2(Vector3.Dot(puv2, ex), Vector3.Dot(puv2, ey)) + uv0;
-                        MapVertex(v2, uv2, new Vector4(ex.x, ex.y, ex.z, -1));
+                        MapVertex(v2, t.Normal, uv2, new Vector4(ex.x, ex.y, ex.z, -1));
                         indexQueue.Enqueue(v2);
                         uvQueue.Enqueue(uv2);
-                        isNew = true;
                     }
 
-                    // Map triangle if at least one vertex is new
-                    if (isNew)
-                    {
-                        MapTriangle(t);
-                    }
+                    // Map triangle
+                    MapTriangle(t);
 
                     // If exceeding threshold
                     if(m_buffer.Triangles.Count / 3 > m_triangleThreshold)

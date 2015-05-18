@@ -19,9 +19,8 @@ namespace UnityBitub.Model
         public string Name;
         public string Description;
 
-        public string IdentificationAttributeID = "ID";
-
-        public Shader ShaderOnNewMaterial = Shader.Find("Transparent/Diffuse");
+        public Shader ShaderOpaque;
+        public Shader ShaderTransparent;
 
         public MaterialID[] MaterialList;
 
@@ -29,6 +28,12 @@ namespace UnityBitub.Model
 
         [SerializeField]
         private AttributeComponentMap m_attributeComponentMap = new AttributeComponentMap();
+
+        void Awake()
+        {
+             ShaderTransparent = Shader.Find("Transparent/Diffuse");
+             ShaderOpaque = Shader.Find("Diffuse");
+        }
 
         #region Non-unity behaviour
 

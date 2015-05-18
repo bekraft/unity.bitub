@@ -9,20 +9,26 @@ namespace UnityBitub.Input
     /// </summary>
     public class TouchSpotTracker : MonoBehaviour
     {
-        public float smooth = 1.5f; // The relative speed at which the camera will catch up.
-        public float preferredDistance = 5.0f; // The preferred distance
+        public float smooth = 1.5f; 
+        public float preferredDistance = 5.0f;
         public float minimalDistance = 1.0f;
         public float maximalDistance = 10.0f;
 
-        public GameObject cursorObject;     // Reference to the player's object.
-
-        #region Private
-
-        private Vector3 m_newPosition;             // The position the camera is trying to reach.
-
-        #endregion
+        public GameObject cursorObject; 
 
         void FixedUpdate()
+        {
+            var newPosition = CalculateBestPosition();
+
+            // Lerp the camera's position between it's current position and it's new position.
+            transform.position = Vector3.Lerp(transform.position, newPosition, smooth * Time.deltaTime);
+
+            // Make sure the camera is looking at the player.
+            SmoothLookAt();
+        }
+
+
+        private Vector3 CalculateBestPosition()
         {
             // A ray from camera position to cursor's object position
             Vector3 ray = transform.position - cursorObject.transform.position;
@@ -39,6 +45,7 @@ namespace UnityBitub.Input
 
             Vector3[] checkPoints = new Vector3[5];
 
+            //
             checkPoints[0] = preferredPos;
             checkPoints[1] = Vector3.Lerp(minDistancePos, maxDistancePos, 0.05f);
             checkPoints[2] = Vector3.Lerp(minDistancePos, maxDistancePos, 0.25f);
@@ -48,48 +55,21 @@ namespace UnityBitub.Input
             // Run through the check points...
             for (int i = 0; i < checkPoints.Length; i++)
             {
-                // ... if the camera can see the player...
-                if (ViewingPosCheck(checkPoints[i]))
+                RaycastHit hit;
+                Vector3 direction = cursorObject.transform.position - checkPoints[i];
+                if (Physics.Raycast(checkPoints[i], direction, out hit, direction.magnitude))
                 {
-                    // ... break from the loop.
-                    break;
+                    if (hit.transform.gameObject.tag.Equals("Player"))
+                    {
+                        // If there's no barrier -> use this position
+                        return checkPoints[i];
+                    }
                 }
             }
 
-            // Lerp the camera's position between it's current position and it's new position.
-            transform.position = Vector3.Lerp(transform.position, m_newPosition, smooth * Time.deltaTime);
-
-            // Make sure the camera is looking at the player.
-            SmoothLookAt();
+            return transform.position;
         }
 
-
-        /// <summary>
-        /// Checks whether given position has a barrier free view to player.
-        /// </summary>
-        /// <returns><c>true</c>, if position has a free view direction towards player's object</return>
-        /// <param name="pos">The position vector.</param>
-        private bool ViewingPosCheck(Vector3 pos)
-        {
-            RaycastHit hit;
-
-            // If a raycast from the check position to the player hits something...
-            Vector3 direction = cursorObject.transform.position - pos;
-            if (Physics.Raycast(pos, direction, out hit, direction.magnitude))
-            {
-
-                // ... if it is not the player...
-                if (!hit.transform.gameObject.tag.Equals(Tags.Player))
-                {
-
-                    return false;
-                }
-            }
-
-            // If we haven't hit anything or we've hit the player, this is an appropriate position.
-            m_newPosition = pos;
-            return true;
-        }
 
         /// <summary>
         /// Rotate position vector.

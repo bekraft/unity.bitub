@@ -43,13 +43,16 @@ namespace UnityBitub.Model
 
         public void OnAfterDeserialize()
         {
-            base.Clear();
+            TKey[] keys = new TKey[m_keys.Count];
+            m_keys.CopyTo(keys);
+            TValue[] values = new TValue[m_values.Count];
+            m_values.CopyTo(values);
 
-            if (m_keys.Count != m_values.Count)
+            if (keys.Length != values.Length)
                 throw new System.Exception(string.Format("there are {0} keys and {1} values after deserialization. Make sure that both key and value types are serializable."));
 
-            for (int i = 0; i < m_keys.Count; i++)
-                this.Add(m_keys[i], m_values[i]);
+            for (int i = 0; i < keys.Length; i++)
+                Add(keys[i], values[i]);
         }
 
         new public void Clear()

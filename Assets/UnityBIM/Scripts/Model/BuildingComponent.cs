@@ -8,7 +8,7 @@ namespace UnityBitub.Model
     /// </summary>
     public enum ComponentType
     {
-        Something, Wall, LayeredWall, Slab, LayeredSlab, Window, Door, Roof, @Space, Column, BuildingPart, Attribute,
+        Something, Container, Wall, LayeredWall, Slab, LayeredSlab, Window, Door, Roof, @Space, Column, BuildingPart, Attribute,
         Foundation, Beam, Opening, Awanting, Facade, Stair, StairFlight
     }
 
@@ -17,6 +17,9 @@ namespace UnityBitub.Model
     /// </summary>
     public class BuildingComponent : MonoBehaviour
     {
+        public const string TAG_ISCONSTRUCTIVE = "UnityBitub.Model.BuildingComponent.IS_CONSTRUCTIVE";
+        public const string TAG_ISNONCONSTRUCTIVE = "UnityBitub.Model.BuildingComponent.IS_NON_CONSTRUCTIVE";
+
         public string ID;
         public bool IsConstructive = true;
         public ComponentType ComponentType = ComponentType.Something;
