@@ -26,9 +26,6 @@ namespace UnityBitub.Model
 
         public string[] AttributeList = new string[] { "MaterialName" };
 
-        [SerializeField]
-        private AttributeComponentMap m_attributeComponentMap = new AttributeComponentMap();
-
         void Awake()
         {
              ShaderTransparent = Shader.Find("Transparent/Diffuse");
@@ -142,63 +139,23 @@ namespace UnityBitub.Model
 
         #endregion
 
-        public BuildingComponentSet GetOrCreateSet(string attributeID)
+        public BuildingComponent GetOrCreateComponent<T>(string name, GameObject template)  where T : BuildingComponent
         {
-            return m_attributeComponentMap.GetOrCreateSet(attributeID);
-        }
-
-        public BuildingComponent GetOrCreateComponent<T>(string id, GameObject template)  where T : BuildingComponent
-        {
-            BuildingComponentSet componentSet = GetOrCreateSet(id);
             BuildingComponent component;
-
-            if (!componentSet.TryGetValue(id, out component))
+            var gameObject = GameObject.Instantiate(template) as GameObject;
+            component = gameObject.GetComponent<T>();
+            if(null == component)
             {
-                var gameObject = GameObject.Instantiate(template) as GameObject;
-                component = gameObject.GetComponent<T>();
-                if(null == component)
-                {
-                    component = gameObject.AddComponent<T>();
-                }
-
-                componentSet.Add(id, component);
-                // Set name as ID
-                gameObject.name = id;
-                component.ID = id;
+                component = gameObject.AddComponent<T>();
             }
+
+            // Set name as ID
+            gameObject.name = name;
+            component.ID = name;
 
             return component;
         }
 
-
-        public void AddAttribute(BuildingComponent c, NamedAttribute a)
-        {
-            var componentSet = m_attributeComponentMap.GetOrCreateSet(a.ID);
-            c.Attribute.Add(a);
-            
-            if(!componentSet.ContainsKey(c.ID))
-                componentSet.Add(c.ID, c);
-        }
-
-        public void AddAttribute(BuildingComponent c, string id, Attribute a)
-        {
-            var componentSet = m_attributeComponentMap.GetOrCreateSet(id);
-            c.Attribute.Add(new NamedAttribute { ID = id, Value = a });
-            
-            if (!componentSet.ContainsKey(c.ID))
-                componentSet.Add(c.ID, c);
-        }
-
-        public void Clean()
-        {
-            m_attributeComponentMap.Clear();
-
-            List<Transform> children = new List<Transform>();
-            foreach (Transform t in gameObject.transform)
-                children.Add(t);
-
-            children.ForEach(t => DestroyImmediate(t));
-        }
 
         #endregion
     }

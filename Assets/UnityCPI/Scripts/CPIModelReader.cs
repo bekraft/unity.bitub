@@ -291,7 +291,7 @@ namespace UnityBitub.CPI
         private void PostprocessSemantics()
         {
             // Post process attributes
-            Debug.Log("Indexing attribute cache.");
+            Debug.Log("Transfering attribute cache.");
             foreach (string key in m_attributeCache.Keys)
             {
                 var component = CreateCachedGameObject(key);
@@ -299,40 +299,58 @@ namespace UnityBitub.CPI
 
                 foreach (NamedAttribute a in attributeList)
                 {
-                    CPIComplex.AddAttribute(component, a);
+                    component.Attribute.Add(a);
                 }
             }
 
             var nonConstructives = new ComponentType[] { ComponentType.Opening, ComponentType.Door, ComponentType.Window };
             // Post process openings and isConstructive
             Dictionary<string, Material> namedMaterials = new Dictionary<string,Material>();
-            CPIComplex.AcceptVisitor((BuildingComponent component, bool hasChildren) =>
+            CPIComplex.AcceptVisitor((CPIBuildingComponent component, bool hasChildren) =>
             {
                 if (System.Array.Exists<ComponentType>(nonConstructives, c => c == component.ComponentType))
                 {
+                    // Set non-constructive
                     component.IsConstructive = false;
                     component.gameObject.tag = BuildingComponent.TAG_ISNONCONSTRUCTIVE;
 
-                    var meshRenderers = component.gameObject.GetComponentsInChildren<MeshRenderer>();
+                    var childComponents = component.gameObject.GetComponentsInChildren<CPIBuildingComponent>();
+                    foreach(CPIBuildingComponent childComponent in childComponents)
+                    {
+                        childComponent.IsConstructive = false;
+                        childComponent.gameObject.tag = BuildingComponent.TAG_ISNONCONSTRUCTIVE;
+                        childComponent.cpiComponentType = component.cpiComponentType;
+                        childComponent.ComponentType = component.ComponentType;
+                    }
 
                     // Clone matertials => use dictionary => adapt transparency
+                    var meshRenderers = component.gameObject.GetComponentsInChildren<MeshRenderer>();
                     foreach(MeshRenderer mr in meshRenderers) 
                     {
-                        if(!namedMaterials.ContainsKey(mr.material.name))
+                        var name = mr.sharedMaterial.name;
+                        Material newMaterial;
+                        if(!namedMaterials.ContainsKey(name))
                         {
-                            var newMaterial = new Material(mr.material);
-                            newMaterial.shader = CPIComplex.ShaderTransparent;
-                            var newColor = new Color(newMaterial.color.r, newMaterial.color.g, newMaterial.color.b);
+                            newMaterial = new Material(CPIComplex.ShaderTransparent);
+                            var oldColor = mr.sharedMaterial.color;
+                            var newColor = new Color(oldColor.r, oldColor.g, oldColor.b);
 
                             newColor.a = 1.0f - CPIPreferences.TransparencyOfOpenings;
                             newMaterial.color = newColor;
 
-                            newMaterial.name = "Transparent " + mr.material.name;
-                            mr.sharedMaterial = newMaterial;
-
-                            if(!namedMaterials.ContainsKey(mr.material.name))
-                                namedMaterials.Add(mr.material.name, newMaterial);
+                            newMaterial.name = "Transparent " + name;
+                            namedMaterials.Add(name, newMaterial);
                         }
+                        else
+                        {
+                            newMaterial = namedMaterials[name];
+                        }
+
+                        mr.sharedMaterial = newMaterial;
+
+                        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                        mr.receiveShadows = false;
+                        mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
                     }
                     // Don't investigate deeper (since its done by this handler)
                     return false;
@@ -791,6 +809,7 @@ namespace UnityBitub.CPI
         {
             MaterialID material = CreateCachedMaterialID(reader.GetAttribute("ID"));
             material.ID = reader.GetAttribute("name");
+            material.Material.name = material.ID;
 
             while (reader.Read() && !reader.EOF) {
 
@@ -857,7 +876,7 @@ namespace UnityBitub.CPI
         private void ReadProperty(XmlReader reader)
         {
             string propertyName = reader.GetAttribute("name").Trim();
-            if (m_attributeToRead.Contains(propertyName) && !propertyName.Equals("cpiComponentType")) {
+            if (!m_attributeToRead.Contains(propertyName) && !propertyName.Equals("cpiComponentType")) {
                 // Skip if only material properties
                 return;
             }

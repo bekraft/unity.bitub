@@ -36,7 +36,6 @@ namespace UnityBitub.CPI.Editor
 
         private void Import(string fileName)
         {
-            TaggedModel.Clean();
             var modelReader = new CPIXMLReader(TaggedModel, fileName);
 
             Debug.Log("Start reading geometry of " + modelReader.Name);
