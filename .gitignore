@@ -2,6 +2,8 @@
 .DS_Store
 /obj/
 /obj/**/*
+/Library/
+/Library/**/*
 /Temp/
 /Temp/**/*
 
