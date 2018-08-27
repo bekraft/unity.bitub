@@ -94,10 +94,7 @@ namespace UnityBitub.CPI
 
         #region Private members
 
-        private XmlReader m_materialSectionReader;
-        private XmlReader m_objectSectionReader;
-        private XmlReader m_propertySectionReader;
-        private XmlReader m_dataSectionReader;
+        private XmlReader m_reader;
 
         // Model and scene stack       
         private Stack<GameObject> m_sceneStack;
@@ -146,155 +143,48 @@ namespace UnityBitub.CPI
             }
             set
             {
-                m_fileName = value;
-                Preprocess(value);
+                this.m_fileName = value;
+                TouchModel(value);
             }
         }
 
-        /// <summary>
-        /// Reads the geometry of model stepwise. Does not read properties.
-        /// </summary>
-        /// <returns></returns>
-        public bool ReadGeometryStepwise()
+        public void ReadModel()
         {
-            bool isDone;
-
-            // Read object structure
-            if (!IsReadMaterialSection)
+            bool isComplete;
+            while(ReadNext(m_reader, out isComplete, null, TAG_OBJECTS))
             {
-                if (ReadMaterials(out isDone))
-                {
-                    IsReadMaterialSection = isDone;
-                    return true;
-                }
-                else
-                {
-                    IsReadMaterialSection = true;
-                    if(!isDone)
-                        Debug.LogWarning("Unexpected end of file.");
-                }
+                if (isComplete)
+                    Debug.Log("Model \"" + Name + "\" read completely.");
             }
 
-            // Read object structure
-            if (!IsReadObjectSection)
-            {
-                if (ReadObjects(out isDone))
-                {
-                    IsReadObjectSection = isDone;
-                    return true;
-                }
-                else
-                {
-                    IsReadObjectSection = true;
-                    if (!isDone)
-                        Debug.LogWarning("Unexpected end of file.");
-                }
-            }
-
-            // Read geometry data
-            if (!IsReadDataSection)
-            {
-                if (ReadData3Ds(out isDone))
-                {
-                    IsReadDataSection = isDone;
-                    return true;
-                } 
-                else
-                {
-                    IsReadDataSection = true;
-                    if (!isDone)
-                        Debug.LogWarning("Unexpected end of file.");
-                }
-            }
-
-            m_dataSectionReader.Close();
-            m_materialSectionReader.Close();
-            m_objectSectionReader.Close();
-
-            PostprocessGeometry();
-
-            return false;
+            Debug.Log("Finalizing model ...");
+            FinalizeData3D();
+            FinalizeProperties();
         }
 
-        public void ReadGeometry()
+        private void FinalizeData3D()
         {
-            while (ReadGeometryStepwise()) ;
-        }
-
-        /// <summary>
-        /// Reads the properties stepwise.
-        /// </summary>
-        /// <returns></returns>
-        private bool ReadPropertiesSingleStep()
-        {
-            bool isDone;
-
-            // Read object structure
-            if (!IsReadPropertySection)
-            {
-                if (ReadProperties(out isDone))
-                {
-                    IsReadPropertySection = isDone;
-                    return true;
-                }
-                else
-                {
-                    IsReadPropertySection = true;
-                    if(!isDone)
-                        Debug.LogWarning("Unexpected end of file.");
-                }
-            }
-
-            m_propertySectionReader.Close();
-
-            return false;
-        }
-
-        public bool ReadPropertiesStepwise()
-        {
-            bool result;
-            if(!(result = ReadPropertiesSingleStep()))
-            {
-                PostprocessSemantics();
-            }
-            return result;
-        }
-
-        public void ReadProperties()
-        {
-            while (ReadPropertiesStepwise()) ;
-        }
-
-        public void ReadPropertiesAsync()
-        {
-            var bw = new BackgroundWorker();
-            bw.DoWork += new DoWorkEventHandler(delegate(object o, DoWorkEventArgs args)
-            {
-                while (ReadPropertiesSingleStep()) ;                
-            });
-
-            bw.RunWorkerCompleted += new RunWorkerCompletedEventHandler(delegate(object o, RunWorkerCompletedEventArgs args)
-            {                
-                Debug.Log("Read property section of \"" + Name + "\".");
-                PostprocessSemantics();
-            });
-
-            bw.RunWorkerAsync();
-        }
-
-        private void PostprocessGeometry()
-        {
-            // overwrite material list
+            // Overwrite material list
             CPIComplex.MaterialList = m_materialCache.Values.ToArray<MaterialID>();
+            // Update material settings
+            CPIComplex.AcceptVisitor((CPIBuildingComponent component, bool hasChildren) =>
+            {
+                var meshRenderer = component.GetComponent<MeshRenderer>();
+                if(null!=component.Material)
+                {
+                    meshRenderer.material = component.Material.Material;
+                }
+                return true;
+            });
         }
 
-        private void PostprocessSemantics()
+        private void FinalizeProperties()
         {
             // Post process attributes
-            Debug.Log("Transfering attribute cache.");
+            Debug.Log("Transfering attribute cache ...");
             foreach (string key in m_attributeCache.Keys)
             {
-                var component = CreateCachedGameObject(key);
+                var component = CreateOrGetComponent(key);
                 var attributeList = m_attributeCache[key];
 
                 foreach (NamedAttribute a in attributeList)
@@ -367,39 +257,13 @@ namespace UnityBitub.CPI
 
         #region XML reader stack
 
-        private delegate void AcceptXmlReaderDelegate(XmlReader reader);
-
-        private void runAsyncPositioning(string fileName, string targetTag, AcceptXmlReaderDelegate accept)
+        private void TouchModel(string fileName)
         {
-            var backgroundReaderThread = new BackgroundWorker();
+            Debug.Log("Start reading \"" + fileName + "\".");
 
-            backgroundReaderThread.DoWork += new DoWorkEventHandler(delegate(object o, DoWorkEventArgs args)
-            {
-                var reader = args.Argument as XmlReader;
-                reader.ReadToDescendant(targetTag);
-                args.Result = reader;
-            });
-
-            backgroundReaderThread.RunWorkerCompleted += new RunWorkerCompletedEventHandler(delegate(object o, RunWorkerCompletedEventArgs args)
-            {
-                accept( args.Result as XmlReader );
-                Debug.Log("Element \"" + targetTag + "\" has been spotted.");
-            });
-
-            backgroundReaderThread.RunWorkerAsync(XmlReader.Create(fileName));            
-        }
-
-        private void Preprocess(string fileName)
-        {
-            runAsyncPositioning(fileName, TAG_MATERIALSECTION, (r) => m_materialSectionReader = r);
-            runAsyncPositioning(fileName, TAG_ROOTCONTAINER, (r) => m_objectSectionReader = r);
-            runAsyncPositioning(fileName, TAG_OBJECTDATASECTION, (r) => m_dataSectionReader = r);
-            runAsyncPositioning(fileName, TAG_PROPERTYSECTION, (r) => m_propertySectionReader = r);
+            this.m_reader = XmlReader.Create(fileName);
+            ReadTo(m_reader, TAG_OBJECTS);
             
-            var initReader = XmlReader.Create(fileName);
-            ReadTo(initReader, TAG_OBJECTS);
-            initReader.Close();
-
             Debug.Log("Reading model \"" + Name + "\" (" + Description + ")");
 
             m_attributeCache.Clear();
@@ -420,71 +284,6 @@ namespace UnityBitub.CPI
         }
 
         /// <summary>
-        /// Reads a single material element.
-        /// </summary>
-        /// <param name="isDone">If properly terminated reading.</param>
-        /// <returns>If reached end of file.</returns>
-        private bool ReadMaterials(out bool isDone)
-        {
-            if (null == m_materialSectionReader)
-            {
-                isDone = false;
-                return true;
-            }
-
-            return ReadNext(m_materialSectionReader, out isDone, null, TAG_MATERIALSECTION);
-        }
-
-        /// <summary>
-        /// Reads a single object element.
-        /// </summary>
-        /// <param name="isDone">If properly terminated reading.</param>
-        /// <returns>If reached end of file.</returns>
-        private bool ReadObjects(out bool isDone)
-        {
-            if (null == m_objectSectionReader)
-            {
-                isDone = false;
-                return true;
-            }
-
-            return ReadNext(m_objectSectionReader, out isDone, null, TAG_ROOTCONTAINER);
-        }
-
-        /// <summary>
-        /// Reads a single geometry object.
-        /// </summary>
-        /// <param name="isDone">If properly terminated reading.</param>
-        /// <returns>If reached end of file.</returns>
-        private bool ReadData3Ds(out bool isDone)
-        {
-            if (null == m_dataSectionReader) {
-
-                isDone = false;
-                return true;
-            }
-
-            return ReadNext(m_dataSectionReader, out isDone, null, TAG_OBJECTDATASECTION);
-        }
-
-        /// <summary>
-        /// Reads a single property object.
-        /// </summary>
-        /// <param name="isDone">If properly terminated reading.</param>
-        /// <returns>If reached end of file.</returns>
-        private bool ReadProperties(out bool isDone)
-        {
-            if(null==m_propertySectionReader)
-            {
-                isDone = false;
-                return true;
-            }
-
-            return ReadNext(m_propertySectionReader, out isDone, null, TAG_PROPERTYSECTION);
-        }
-
-
-        /// <summary>
         /// Reads the next object from stream.
         /// </summary>
         /// <param name="reader"></param>
@@ -495,8 +294,8 @@ namespace UnityBitub.CPI
         private bool ReadNext(XmlReader reader, out bool isDone, string startTag = null, string endTag = null)
         {
             isDone = false;
-            
-            switch (reader.NodeType) {
+    
+            switch (reader.NodeType) {   
                 case XmlNodeType.Element:
 
                     isDone = null != startTag && reader.Name.Equals(startTag);
@@ -511,7 +310,6 @@ namespace UnityBitub.CPI
 
             return reader.Read() && !reader.EOF;
         }
-
 
         private bool ReadTo(XmlReader reader, string startTag = null)
         {
@@ -533,26 +331,36 @@ namespace UnityBitub.CPI
                     ReadMetainfo(reader);
                     break;
                 case TAG_ROOTCONTAINER:
-                    var component1 = GenerateGameObject(reader);
+                    IsReadObjectSection = true;
+                    var component1 = ReadComponent(reader);
                     m_sceneStack.Push(component1.gameObject);
                     component1.ComponentType = ComponentType.Container;
                     component1.IsConstructive = false;
                     break;
                 case TAG_CONTAINER:
-                    var component2 = GenerateGameObject(reader);
+                    var component2 = ReadComponent(reader);
                     m_sceneStack.Push(component2.gameObject);
                     component2.ComponentType = ComponentType.Container;
                     component2.IsConstructive = false;
                     break;
                 case TAG_OBJECT3D:
                     TotalObjects++;
-                    GenerateObject3D(reader);
+                    ReadObject3D(reader);
+                    break;
+                case "objectDataSection":
+                    IsReadDataSection = true;
                     break;
                 case TAG_DATA3D:
                     ReadData3D(reader);
                     break;
+                case "propertySection":
+                    IsReadPropertySection = true;
+                    break;
                 case TAG_PROPERTY:
                     ReadProperty(reader);
+                    break;
+                case "materialSection":
+                    IsReadMaterialSection = true;
                     break;
                 case TAG_MATERIAL:
                     ReadMaterial(reader);
@@ -582,7 +390,7 @@ namespace UnityBitub.CPI
 
         #region Game object creation
 
-        private CPIBuildingComponent CreateCachedGameObject(string id, string name = "")
+        private CPIBuildingComponent CreateOrGetComponent(string id, string name = "")
         {
             CPIBuildingComponent cpiObject;
             if (!m_componentCache.TryGetValue(id, out cpiObject))
@@ -598,12 +406,12 @@ namespace UnityBitub.CPI
             return cpiObject;
         }
 
-        private CPIBuildingComponent GenerateGameObject(XmlReader reader)
+        private CPIBuildingComponent ReadComponent(XmlReader reader)
         {
             string id = reader.GetAttribute("ID").Trim();
             string name = reader.GetAttribute("name");
 
-            CPIBuildingComponent cpiObject = CreateCachedGameObject(id, name);
+            CPIBuildingComponent cpiObject = CreateOrGetComponent(id, name);
 
             Transform parent = null;
 
@@ -622,7 +430,7 @@ namespace UnityBitub.CPI
                 if (null != refIdStr && refIdStr.Trim().Length > 0) {
 
                     // Parent is another object
-                    CPIBuildingComponent parentCpiObject = CreateCachedGameObject(refIdStr);
+                    CPIBuildingComponent parentCpiObject = CreateOrGetComponent(refIdStr);
                     parent = parentCpiObject.gameObject.transform;
                 }
                 else {
@@ -644,21 +452,15 @@ namespace UnityBitub.CPI
             return cpiObject;
         }
 
-
         /// <summary>
-        /// Creates the object3D game object.
+        /// Creates the object3D game object including its material reference.
         /// </summary>
         /// <returns>The object3D game object.</returns>
-        private CPIBuildingComponent GenerateObject3D(XmlReader reader)
+        private CPIBuildingComponent ReadObject3D(XmlReader reader)
         {
-            var component = GenerateGameObject(reader);            
-            MaterialID material;
-
-            if(m_materialCache.TryGetValue(reader.GetAttribute("matID"), out material))
-            {
-                component.Material = material;
-            }
-            
+            var component = ReadComponent(reader);
+            MaterialID material = CreateOrGetMaterial(reader.GetAttribute("matID"));
+            component.Material = material;
             return component;
         }
 
@@ -673,7 +475,7 @@ namespace UnityBitub.CPI
         {
             // Find object3D
             string strRefID = reader.GetAttribute("refID");
-            CPIBuildingComponent component = CreateCachedGameObject(strRefID);
+            CPIBuildingComponent component = CreateOrGetComponent(strRefID);
 
 			// 65000 predefined total number of triangles allowed
             TriangleMeshBuilder meshBuilder = new TriangleMeshBuilder(65000, CPIComplex.componentTemplate);
@@ -697,7 +499,11 @@ namespace UnityBitub.CPI
                 }
                 meshRenderer.material = material;
 
-                meshRenderer.useLightProbes = CPIPreferences.EnableUseLightProbs;
+                if (CPIPreferences.EnableUseLightProbs)
+                    meshRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.BlendProbes;
+                else
+                    meshRenderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+
 				meshRenderer.shadowCastingMode = (CPIPreferences.EnableCastShadows?
 				           UnityEngine.Rendering.ShadowCastingMode.On: UnityEngine.Rendering.ShadowCastingMode.Off);
                 meshRenderer.receiveShadows = CPIPreferences.EnableReceiveShadows;
@@ -748,11 +554,9 @@ namespace UnityBitub.CPI
             }
         }
 
-
         /// <summary>
         /// Focuses the "p" element. Reads a single  point.
         /// </summary>
-        /// <param name="expectedNr">The expected index of point</param>
         private Vector3 ReadPoint(XmlReader reader)
         {
             float x, y, z;
@@ -765,7 +569,6 @@ namespace UnityBitub.CPI
         /// <summary>
         /// Focuses the "t" element. Reads a single triangle.
         /// </summary>
-        /// <param name="triangles">Triangle indices list</param>
         private int[] ReadTriangle(XmlReader reader)
         {
             int p1, p2, p3;
@@ -774,7 +577,6 @@ namespace UnityBitub.CPI
             int.TryParse(reader.GetAttribute("p3"), out p3);
             return new int[] { p1, p2, p3 };
         }
-
 
         #endregion
 
@@ -807,7 +609,7 @@ namespace UnityBitub.CPI
 
         private void ReadMaterial(XmlReader reader)
         {
-            MaterialID material = CreateCachedMaterialID(reader.GetAttribute("ID"));
+            MaterialID material = CreateOrGetMaterial(reader.GetAttribute("ID"));
             material.ID = reader.GetAttribute("name");
             material.Material.name = material.ID;
 
@@ -824,7 +626,6 @@ namespace UnityBitub.CPI
                             ReadMaterialTransparency(reader, material.Material);
                             break;
                     }
-
                 }
 
                 if (reader.NodeType == XmlNodeType.EndElement && reader.Name.Equals(TAG_MATERIAL)) {
@@ -833,8 +634,7 @@ namespace UnityBitub.CPI
             }
         }
 
-
-        private MaterialID CreateCachedMaterialID(string matID)
+        private MaterialID CreateOrGetMaterial(string matID)
         {
             MaterialID material;
             if(!m_materialCache.TryGetValue(matID, out material))
@@ -882,7 +682,7 @@ namespace UnityBitub.CPI
             }
 
             string refID = reader.GetAttribute("refID").Trim();
-            CPIBuildingComponent component = CreateCachedGameObject(refID);
+            CPIBuildingComponent component = CreateOrGetComponent(refID);
             string content = reader.ReadString().Trim();
 
             // Recognize and map component type

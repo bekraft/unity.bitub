@@ -50,12 +50,10 @@ namespace UnityBitub.Model
         {
             if (null != visitor)
             {
-
                 var queue = InitSearch();
 
                 while (queue.Count > 0)
                 {
-
                     bool hasChildren;
                     var gameObject = Search(queue, out hasChildren);
                     var component = gameObject.GetComponent<T>();

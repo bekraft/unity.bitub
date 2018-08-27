@@ -11,7 +11,7 @@ namespace UnityBitub.CPI
     /// </summary>
     public enum CPIComponentType
     {
-        Default, Wall, Multi_Wall, Column, Door, Slab, Window, Opening, Part, Attribute, @Space, Foundation, Beam
+        Default, Wall, Multi_Wall, Column, Door, Slab, Window, Opening, Part, Attribute, @Space, Foundation, Beam, Surface
     }
 
     /// <summary>

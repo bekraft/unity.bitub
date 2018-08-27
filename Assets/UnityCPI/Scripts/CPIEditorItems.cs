@@ -8,61 +8,57 @@ using UnityEditor;
 
 namespace UnityBitub.CPI.Editor
 {
+    sealed internal class Loader
+    {
+        static internal CPIBuildingComplex FindRootComponent()
+        {
+            var modelRoot = GameObject.FindGameObjectWithTag(CPIBuildingComplex.TAG);
+            if (null == modelRoot)
+            {
+                Debug.LogError("CPI model root game object not found. Use \"" + CPIBuildingComplex.TAG + "\" tag.");
+                return null;
+            }
+            else
+            {
+                var complexTemplate = modelRoot.GetComponent<CPIBuildingComplex>();
+                if (null == complexTemplate)
+                {
+                    Debug.LogWarning("CPI model script missing. Adding new one.");
+                    complexTemplate = modelRoot.AddComponent<CPIBuildingComplex>();
+                }
+                return complexTemplate;
+            }
+        }
+
+        static internal void runImport(CPIBuildingComplex complexTemplate, string fileName)
+        {
+            var modelReader = new CPIXMLReader(complexTemplate, fileName);
+            Debug.Log("Start reading model of " + modelReader.Name);
+            modelReader.ReadModel();
+            Debug.Log(string.Format("Read {0} objects in total.", modelReader.TotalObjects));
+        }
+    }
 
     /// <summary>
     /// Unity Editor Hook into main menu.
     /// </summary>
     sealed public class CPIEditorItems
     {
-        public CPIBuildingComplex TaggedModel { private set; get; }
-
-        /// <summary>
-        /// Initializes. Finds the CPI building complex root by its tag.
-        /// </summary>
-        public CPIEditorItems()
-        {
-            var modelRoot = GameObject.FindGameObjectWithTag(CPIBuildingComplex.TAG);
-            if (null == modelRoot) {
-                Debug.LogError("CPI model root game object not found. Use \"" + CPIBuildingComplex.TAG + "\" tag.");
-            }
-            else {
-                TaggedModel = modelRoot.GetComponent<CPIBuildingComplex>();
-                if (null == TaggedModel) {
-                    Debug.LogWarning("CPI model script missing. Adding new one.");
-                    TaggedModel = modelRoot.AddComponent<CPIBuildingComplex>();
-                }
-            }
-        }
-
-        private void Import(string fileName)
-        {
-            var modelReader = new CPIXMLReader(TaggedModel, fileName);
-
-            Debug.Log("Start reading geometry of " + modelReader.Name);
-            modelReader.ReadGeometry();
-            Debug.Log(string.Format("Read {0} objects in total.", modelReader.TotalObjects));
-
-            Debug.Log("Start reading properties of " + modelReader.Name);
-            modelReader.ReadProperties();
-            Debug.Log("Reader terminated normally.");
-        }
-
-
         [MenuItem("CPI/Import CPIXML model")]
         static void Import()
         {
+            var complexTemplate = Loader.FindRootComponent();       
             string path = EditorUtility.OpenFilePanel("RIB CPI Model Import", "%USERPROFILE%", "cpixml");
             Debug.Log("Start importing file \"" + path + "\".");
 
-            var importHelper = new CPIEditorItems();
-            importHelper.Import(path);
+            Loader.runImport(complexTemplate, path);
         }
 
         [MenuItem("CPI/Hide or show openings")]
         static void HideShowOpenings()
         {
-            var editorItems = new CPIEditorItems();
-            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
+            var complexTemplate = Loader.FindRootComponent();
+            complexTemplate.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
             {
                 if (component.ComponentType == ComponentType.Opening) {
 
@@ -75,8 +71,8 @@ namespace UnityBitub.CPI.Editor
         [MenuItem("CPI/Hide or show spaces")]
         static void HideShowSpaces()
         {
-            var editorItems = new CPIEditorItems();
-            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
+            var complexTemplate = Loader.FindRootComponent();
+            complexTemplate.AcceptVisitor((BuildingComponent component, bool hasChildren) => 
             {
                 if (component.ComponentType == ComponentType.Space) {
 
@@ -89,9 +85,8 @@ namespace UnityBitub.CPI.Editor
         [MenuItem("CPI/Generate physics")]
         static void ComputeColliders()
         {
-            var editorItems = new CPIEditorItems();
-
-            editorItems.TaggedModel.AcceptVisitor((BuildingComponent component, bool hasChildren) =>
+            var complexTemplate = Loader.FindRootComponent();
+            complexTemplate.AcceptVisitor((BuildingComponent component, bool hasChildren) =>
             {
                 if (!component.IsConstructive)
                 {
