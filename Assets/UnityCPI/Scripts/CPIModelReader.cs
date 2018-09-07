@@ -170,7 +170,7 @@ namespace UnityBitub.CPI
             CPIComplex.AcceptVisitor((CPIBuildingComponent component, bool hasChildren) =>
             {
                 var meshRenderer = component.GetComponent<MeshRenderer>();
-                if(null!=component.Material)
+                if(null!=component.Material && null!=meshRenderer)
                 {
                     meshRenderer.material = component.Material.Material;
                 }
@@ -479,15 +479,17 @@ namespace UnityBitub.CPI
 
 			// 65000 predefined total number of triangles allowed
             TriangleMeshBuilder meshBuilder = new TriangleMeshBuilder(65000, CPIComplex.componentTemplate);
-            meshBuilder.StartMeshing(component.name, delegate(GameObject o)
+            meshBuilder.StartMeshing(component.name, component.gameObject, delegate(GameObject o)
             {
-                o.name = "Mesh of " + component.name;
+                // Set transformation
+                if (o != component.gameObject)
+                {
+                    o.name = "Mesh of " + component.name;
+                    o.transform.position = component.gameObject.transform.position;
+                    o.transform.rotation = component.gameObject.transform.rotation;
 
-                // Set transformation            
-                o.transform.position = component.gameObject.transform.position;
-                o.transform.rotation = component.gameObject.transform.rotation;
-
-                o.transform.parent = component.gameObject.transform;
+                    o.transform.parent = component.gameObject.transform;
+                }
 
                 o.GetComponent<MeshFilter>().name = component.name;
 

@@ -17,6 +17,10 @@ namespace UnityBitub.CPI
 
         public GameObject componentTemplate;
 
+        public CPIComponentType[] IgnoreCpiComponentType = new CPIComponentType[] { CPIComponentType.Line };
+
+        public string[] AggregateObjectByName = new string[] { };
+ 
         void Awake()
         {
             if (null == componentTemplate) {

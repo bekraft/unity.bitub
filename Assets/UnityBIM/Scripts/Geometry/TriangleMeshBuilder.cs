@@ -8,6 +8,26 @@ using UnityEngine;
 namespace UnityBitub.Geometry
 {
     /// <summary>
+    /// A triangle defined by its three vertices.
+    /// </summary>
+    public class Triangle
+    {
+        public readonly int V1, V2, V3;
+
+        internal Triangle(int a, int b, int c)
+        {
+            V1 = a;
+            V2 = b;
+            V3 = c;
+        }
+
+        public bool IsValid
+        {
+            get { return V1 != V2 && V2 != V3 && V3 != V1; }
+        }
+    }
+
+    /// <summary>
     /// A triangle mesher. Calculates mesh, UV and tangents. Works with a predefined threshold of a number
     /// of triangles. If threshold is reached, a gameobject is flushed and emitted via emitter delegate.
     /// <p>
@@ -26,6 +46,7 @@ namespace UnityBitub.Geometry
         private GameObject m_template;
         private Buffer m_buffer;
         private string m_objectName = "Unknown";
+        private GameObject m_singletonObject;
 
         #endregion
 
@@ -38,112 +59,6 @@ namespace UnityBitub.Geometry
         /// Total triangle count processed.
         /// </summary>
         public long TotalTriangleCount { get; private set; }
-
-        /// <summary>
-        /// A triangle defined by its three vertices.
-        /// </summary>
-        class Triangle
-        {
-            public int V1 { get; private set; }
-            public int V2 { get; private set; }
-            public int V3 { get; private set; }
-            public IList<Vector3> XYZ {get; private set; }
-
-            public Triangle(IList<Vector3> v, int a, int b, int c)
-            {
-                XYZ = v;
-                V1 = a;
-                V2 = b;
-                V3 = c;
-            }
-
-            public bool IsValid
-            {
-                get { return V1 != V2 && V2 != V3 && V3 != V1; }
-            }
-
-            public Vector3 A
-            {
-                get { return XYZ[V1];  }
-            }
-
-            public Vector3 B
-            {
-                get { return XYZ[V2]; }
-            }
-
-            public Vector3 C
-            {
-                get { return XYZ[V3]; }
-            }
-
-            public Vector3 Normal
-            {
-                get
-                {
-                    var normal = Vector3.Cross(B-A, C-A);
-                    normal.Normalize();
-                    return normal;
-                }
-            }
-
-            public void ComputeUVs(out Vector3 ex, out Vector3 ey, float tiling)
-            {
-                // Normalized planar UV vectors
-                var normal = Normal;
-                if (Math.Abs(normal.y) > Vector3.kEpsilon)
-                {
-                    // If y is not near zero
-                    ex = new Vector3(1, -normal.x / normal.y, 0);
-                }
-                else if (Math.Abs(normal.x) > Vector3.kEpsilon)
-                {
-                    // Otherwise
-                    ex = new Vector3(-normal.y / normal.x, 1, 0);
-                }
-                else
-                {
-                    // Use standard axis (1,0,0) since plane of triangle is parallel to XY
-                    ex = Vector3.one;
-                }
-
-                ey = Vector3.Cross(normal, ex);
-                ex.Normalize();
-                ex *= 1 / tiling;
-                ey.Normalize();
-                ey *= 1 / tiling;
-            }
-
-            public void MapBuffer(int baseIdx, Vector2 baseUV, Buffer buffer)
-            {
-
-            }
-
-            public void MapTriangle(IDictionary<int, List<Triangle>> map)
-            {
-                List<Triangle> starOf;
-                if (!map.TryGetValue(V1, out starOf))
-                {
-                    starOf = new List<Triangle>();
-                    map.Add(V1, starOf);
-                }
-                starOf.Add(this);
-
-                if (!map.TryGetValue(V2, out starOf))
-                {
-                    starOf = new List<Triangle>();
-                    map.Add(V2, starOf);
-                }
-                starOf.Add(this);
-
-                if (!map.TryGetValue(V3, out starOf))
-                {
-                    starOf = new List<Triangle>();
-                    map.Add(V3, starOf);
-                }
-                starOf.Add(this);
-            }
-        }
 
         /// <summary>
         /// A buffer to collect mesh data.
@@ -162,24 +77,24 @@ namespace UnityBitub.Geometry
             internal List<Vector3> XYZ = new List<Vector3>();
             // Normal per Vertex
             internal List<Vector3> Normal = new List<Vector3>();
-
-            internal Buffer Remap(params int[] idxs)
+            // Repeats given indexed vertices
+            internal Buffer Repeat(params int[] indexes)
             {
                 var buffer = new Buffer();
 
-                int li = 0;
-                foreach(int i in idxs)
+                int newIndex = 0;
+                foreach(int i in indexes)
                 {
-                    // Determine old index
                     var oi = Index[i];
-                    // Re-map to new
-                    buffer.Index.Add(i, li);
+                    // Add mapping from i-th to a new vertex at the end of the buffer
+                    buffer.Index.Add(i, newIndex);
+                    // Append a new vertex (repeating i-th)
                     buffer.UV.Add(UV[oi]);
                     buffer.Tangents.Add(Tangents[oi]);
                     buffer.XYZ.Add(XYZ[oi]);
                     buffer.Normal.Add(Normal[oi]);
 
-                    li++;
+                    newIndex++;
                 }
 
                 return buffer;
@@ -208,30 +123,41 @@ namespace UnityBitub.Geometry
         /// Starts meshing.
         /// </summary>
         /// <param name="objName">Some name for logging.</param>
+        /// <param name="singleton">Some singleton game object as initial container</param>
         /// <param name="handler">A delegate taken to emit new GameObjects to.</param>
-        public void StartMeshing(string objName, EmitNewGameObject handler)
+        public void StartMeshing(string objName, GameObject singleton, EmitNewGameObject handler)
         {
+            Debug.Log(string.Format("Start meshing {0} ...", objName));
             m_objectName = objName;
             m_emitter = handler;
 
             m_triangles.Clear();
             m_xyz.Clear();
             m_buffer = new Buffer();
+            m_singletonObject = singleton;
         }
 
+        /// <summary>
+        /// Appends a face's point.
+        /// </summary>
+        /// <param name="p">The point as localized vector</param>
         public void AppendPoint(Vector3 p)
         {
             m_xyz.Add(p);
         }
 
+        /// <summary>
+        /// Clears current face buffer and starts meshing a new face.
+        /// </summary>
         public void StartMeshFace()
         {
             m_triangles.Clear();
+            // Force overwriting of uvs and normals (new face)
             m_buffer.Index.Clear();
         }
 
         /// <summary>
-        /// Flushes the buffer to mesh.
+        /// Flushes the face buffer to mesh.
         /// </summary>
         public void EndMeshFace()
         {
@@ -247,14 +173,14 @@ namespace UnityBitub.Geometry
         /// <returns>True, if appended; False if invalid.</returns>
         public bool AppendTriangle(int a, int b, int c)
         {
-            var t = new Triangle(m_xyz, a, b, c);
+            var t = new Triangle(a, b, c);
             if(!t.IsValid)
             {
                 Debug.LogWarning(string.Format("({0}) Detected topologically invalid triangle (index {1},{2},{3}).",m_objectName, a,b,c));
                 return false;
             }
 
-            t.MapTriangle(m_triangles);
+            StoreTriangle(t);
             return true;
         }
 
@@ -264,8 +190,8 @@ namespace UnityBitub.Geometry
         public void EndMeshing()
         {
             FlushMeshBuffer();
-            FlushMeshObject();
-
+            EmitGameObject();
+            // Clear face's buffering
             m_xyz.Clear();
             m_triangles.Clear();
             m_buffer = null;
@@ -274,9 +200,16 @@ namespace UnityBitub.Geometry
         /// <summary>
         /// Flushes the geometry proxy. Adds a MeshFilter to new GameObject.
         /// </summary>
-        protected void FlushMeshObject()
+        private void EmitGameObject()
         {
-            var gameObject = GameObject.Instantiate(m_template) as GameObject;
+            if (0 == m_buffer.Triangles.Count)
+            {
+                Debug.Log(string.Format("Skipping empty mesh object ({0}).", m_objectName));
+                return;
+            }
+
+            // If there's a singleton, use it, otherwise create a new game object
+            var gameObject = (null!=m_singletonObject? m_singletonObject : GameObject.Instantiate(m_template) as GameObject);
 
             // Set mesh
             var meshFilter = gameObject.GetComponent<MeshFilter>();
@@ -301,9 +234,12 @@ namespace UnityBitub.Geometry
 
             mesh.tangents = m_buffer.Tangents.ToArray();
 
-            // Notify emitter
+            // Notify emitter (if not singleton)
             if (null != m_emitter)
+            {
                 m_emitter(gameObject);
+                m_singletonObject = null;
+            }
         }
 
         /// <summary>
@@ -313,7 +249,7 @@ namespace UnityBitub.Geometry
         /// <param name="uv">The UV coordinates</param>
         /// <param name="t">The tangent</param>
         /// <returns>True, if not known before.</returns>
-        private void MapVertex(int id, Vector3 n, Vector2 uv, Vector4 t)
+        private void BufferVertex(int id, Vector3 n, Vector2 uv, Vector4 t)
         {
             int localIndex = m_buffer.XYZ.Count;
             if (!m_buffer.Index.ContainsKey(id))
@@ -327,7 +263,7 @@ namespace UnityBitub.Geometry
             m_buffer.Tangents.Add(t);
         }
 
-        private void MapTriangle(Triangle t)
+        private void BufferTriangle(Triangle t)
         {
             m_buffer.Triangles.Add(m_buffer.Index[t.V1]);
             m_buffer.Triangles.Add(m_buffer.Index[t.V2]);
@@ -352,8 +288,8 @@ namespace UnityBitub.Geometry
             // Compute initial vertex tangents
             var initialTriangle = m_triangles[idx].First<Triangle>();
             Vector3 ex, ey;
-            initialTriangle.ComputeUVs(out ex, out ey, TextureScale);
-            MapVertex(idx, initialTriangle.Normal, Vector2.zero, new Vector4(ex.x, ex.y, ex.z, -1));
+            ComputeUVs(initialTriangle, out ex, out ey, TextureScale);
+            BufferVertex(idx, Normal(initialTriangle), Vector2.zero, new Vector4(ex.x, ex.y, ex.z, -1));
 
             while(indexQueue.Count > 0)
             {
@@ -372,7 +308,7 @@ namespace UnityBitub.Geometry
                     visitedTriangleSet.Add(t);
 
                     // Compute UVs                    
-                    t.ComputeUVs(out ex, out ey, TextureScale);
+                    ComputeUVs(t, out ex, out ey, TextureScale);
 
                     // Calculate local texture coordinates
                     int v1, v2;
@@ -402,31 +338,34 @@ namespace UnityBitub.Geometry
                     var p0 = m_xyz[idx];
                     var puv1 = m_xyz[v1] - p0;
                     var puv2 = m_xyz[v2] - p0;
+                    var n = Normal(t);
 
                     // Build UV coordinates using planar unit vectors and base offset                    
                     if (!m_buffer.Index.ContainsKey(v1))
                     {
                         var uv1 = new Vector2(Vector3.Dot(puv1, ex), Vector3.Dot(puv1, ey)) + uv0;
-                        MapVertex(v1, t.Normal, uv1, new Vector4(ex.x, ex.y, ex.z, -1));
+                        BufferVertex(v1, n, uv1, new Vector4(ex.x, ex.y, ex.z, -1));
                         indexQueue.Enqueue(v1);
                         uvQueue.Enqueue(uv1);
                     }
                     if (!m_buffer.Index.ContainsKey(v2))
                     {
                         var uv2 = new Vector2(Vector3.Dot(puv2, ex), Vector3.Dot(puv2, ey)) + uv0;
-                        MapVertex(v2, t.Normal, uv2, new Vector4(ex.x, ex.y, ex.z, -1));
+                        BufferVertex(v2, n, uv2, new Vector4(ex.x, ex.y, ex.z, -1));
                         indexQueue.Enqueue(v2);
                         uvQueue.Enqueue(uv2);
                     }
 
                     // Map triangle
-                    MapTriangle(t);
+                    BufferTriangle(t);
 
                     // If exceeding threshold
                     if(m_buffer.Triangles.Count / 3 > m_triangleThreshold)
                     {
-                        FlushMeshObject();
-                        m_buffer = m_buffer.Remap(v1, v2);
+                        // Don't use singleton, rather create new mesh filter children
+                        m_singletonObject = null;
+                        EmitGameObject();
+                        m_buffer = m_buffer.Repeat(v1, v2);
                         TotalTriangleCount += m_triangles.Count / 3;
                     }
                 }
@@ -436,5 +375,66 @@ namespace UnityBitub.Geometry
             TotalTriangleCount += m_triangles.Count / 3;
             m_triangles.Clear();
         }
+
+        private Vector3 Normal(Triangle t)
+        {
+            var normal = Vector3.Cross(m_xyz[t.V2] - m_xyz[t.V1], m_xyz[t.V3] - m_xyz[t.V1]);
+            normal.Normalize();
+            normal *= -1.0f;
+            return normal;
+        }
+
+        private void ComputeUVs(Triangle t, out Vector3 ex, out Vector3 ey, float tiling)
+        {
+            // Normalized planar UV vectors
+            var normal = Normal(t);
+            if (Math.Abs(normal.y) > Vector3.kEpsilon)
+            {
+                // If y is not near zero
+                ex = new Vector3(1, -normal.x / normal.y, 0);
+            }
+            else if (Math.Abs(normal.x) > Vector3.kEpsilon)
+            {
+                // Otherwise
+                ex = new Vector3(-normal.y / normal.x, 1, 0);
+            }
+            else
+            {
+                // Use standard axis (1,0,0) since plane of triangle is parallel to XY
+                ex = Vector3.one;
+            }
+
+            ey = Vector3.Cross(normal, ex);
+            ex.Normalize();
+            ex *= 1 / tiling;
+            ey.Normalize();
+            ey *= 1 / tiling;
+        }
+
+        private void StoreTriangle(Triangle t)
+        {
+            List<Triangle> starOf;
+            if (!m_triangles.TryGetValue(t.V1, out starOf))
+            {
+                starOf = new List<Triangle>();
+                m_triangles.Add(t.V1, starOf);
+            }
+            starOf.Add(t);
+
+            if (!m_triangles.TryGetValue(t.V2, out starOf))
+            {
+                starOf = new List<Triangle>();
+                m_triangles.Add(t.V2, starOf);
+            }
+            starOf.Add(t);
+
+            if (!m_triangles.TryGetValue(t.V3, out starOf))
+            {
+                starOf = new List<Triangle>();
+                m_triangles.Add(t.V3, starOf);
+            }
+            starOf.Add(t);
+        }
+
     }
 }
