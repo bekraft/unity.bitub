@@ -49,9 +49,12 @@ namespace UnityBitub.CPI.Editor
         {
             var complexTemplate = Loader.FindRootComponent();       
             string path = EditorUtility.OpenFilePanel("RIB CPI Model Import", "%USERPROFILE%", "cpixml");
-            Debug.Log("Start importing file \"" + path + "\".");
-
-            Loader.runImport(complexTemplate, path);
+            
+            if (0 < path.Length)
+            {
+                Debug.Log("Start importing file \"" + path + "\".");
+                Loader.runImport(complexTemplate, path);
+            }
         }
 
         [MenuItem("CPI/Hide or show openings")]
