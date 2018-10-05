@@ -12,7 +12,14 @@ namespace UnityBitub.Geometry
     /// </summary>
     public class Triangle
     {
-        public readonly int V1, V2, V3;
+        public enum Orientation
+        {
+            Unconnected, Aligned, Opposed
+        }
+
+        public int V1 { private set; get; }
+        public int V2 { private set; get; }
+        public int V3 { private set; get; }
 
         internal Triangle(int a, int b, int c)
         {
@@ -24,6 +31,75 @@ namespace UnityBitub.Geometry
         public bool IsValid
         {
             get { return V1 != V2 && V2 != V3 && V3 != V1; }
+        }
+
+        public int this[int index]
+        {
+            get {
+                switch((index % 3 + 3) % 3)
+                {
+                    case 0:
+                        return V1;
+                    case 1:
+                        return V2;
+                    case 2:
+                        return V3;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+        }
+
+        public int Find(int v)
+        {
+            if (v == V1)
+                return 0;
+            else if (v == V2)
+                return 1;
+            else if (v == V3)
+                return 2;
+            else
+                return -1;
+        }
+
+        public void flip()
+        {
+            int tmp = V1;
+            V1 = V2;
+            V2 = V1;
+        }
+
+        private bool IsAligned(Triangle other, int thisIndex, int otherIndex)
+        {
+            return this[thisIndex + 1] == other[otherIndex - 1] || this[thisIndex - 1] == other[otherIndex + 1];
+        }
+
+        private bool IsOpposed(Triangle other, int thisIndex, int otherIndex)
+        {
+            return this[thisIndex + 1] == other[otherIndex + 1] || this[thisIndex - 1] == other[otherIndex - 1];
+        }
+
+        public Orientation GetOrientationAt(Triangle other, int v)
+        {
+            int thisIndex = Find(v);
+            int otherIndex = other.Find(v);
+
+            if (0 > thisIndex || 0 > otherIndex)
+            {
+                return Orientation.Unconnected;
+            }
+            else if (IsAligned(other, thisIndex, otherIndex))
+            {
+                return Orientation.Aligned;
+            }
+            else if (IsOpposed(other, thisIndex, otherIndex))
+            {
+                return Orientation.Opposed;
+            } 
+            else
+            {
+                throw new Exception();
+            }
         }
     }
 
@@ -270,14 +346,23 @@ namespace UnityBitub.Geometry
             m_buffer.Triangles.Add(m_buffer.Index[t.V3]);
         }
 
+        private void CorrectOrientation()
+        {
+            var triangles = new HashSet<Triangle>();
+            foreach(int index in m_triangles.Keys)
+            {
+                var star = m_triangles[index];
+                var correct = star.Find(t => triangles.Contains(t));
+
+            }
+        }
+
         protected void FlushMeshBuffer()
         {
             if (0 == m_triangles.Count)
-            {
                 return;
-            }
 
-            HashSet<Triangle> visitedTriangleSet = new HashSet<Triangle>();
+            HashSet<Triangle> triangleSet = new HashSet<Triangle>();
             Queue<int> indexQueue = new Queue<int>();
             var idx = m_triangles.Keys.FirstOrDefault<int>();
             indexQueue.Enqueue(idx);
@@ -301,11 +386,11 @@ namespace UnityBitub.Geometry
 
                 foreach(Triangle t in starOf)
                 {
-                    if (visitedTriangleSet.Contains(t))
+                    if (triangleSet.Contains(t))
                     {
                         continue;
                     }
-                    visitedTriangleSet.Add(t);
+                    triangleSet.Add(t);
 
                     // Compute UVs                    
                     ComputeUVs(t, out ex, out ey, TextureScale);

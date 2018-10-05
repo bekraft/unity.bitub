@@ -18,8 +18,8 @@ Goto ```CPI > Import CPIXML model``` and select a file. It might take a while fo
 
 ### How it works
 
-CPIXML is an XML based 3D container of building component semantics and BREP data. The importer will create
-a game object for each container and 3D object. All breps will be converted to meshes. Huge meshes are partioned into multiple
+CPIXML is a XML based 3D container of building component semantics and BREP data. The importer will create
+a game object for each container and 3D object. All breps will be converted into meshes. Huge meshes are partioned into multiple
 game objects (since Unity only allows 64K triangles per mesh).
 
 The prefab ```PlainComplex``` holds some data for import. Most crucial: The component template, which is taken as prefab for
