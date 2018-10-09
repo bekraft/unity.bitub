@@ -7,6 +7,21 @@ using UnityEngine;
 
 namespace UnityBitub.Geometry
 {
+    public class TriangleBuilderException : Exception
+    {
+        public readonly Cause Reason;
+
+        public enum Cause
+        {
+            InconsistentOrientation, InvalidTopology
+        }
+
+        public TriangleBuilderException(Cause c)
+        {
+            this.Reason = c;
+        }
+    }
+
     /// <summary>
     /// A triangle defined by its three vertices.
     /// </summary>
@@ -31,6 +46,11 @@ namespace UnityBitub.Geometry
         public bool IsValid
         {
             get { return V1 != V2 && V2 != V3 && V3 != V1; }
+        }
+
+        public double CrossProduct(List<Vector3> pointList)
+        {
+
         }
 
         public int this[int index]
@@ -62,25 +82,30 @@ namespace UnityBitub.Geometry
                 return -1;
         }
 
-        public void flip()
+        public void Flip()
         {
             int tmp = V1;
             V1 = V2;
             V2 = V1;
         }
 
-        private bool IsAligned(Triangle other, int thisIndex, int otherIndex)
+        private bool IsEdgeOpposed(Triangle other, int thisIndex, int otherIndex)
         {
+            // Opposed at edge & opposed at face orientation
             return this[thisIndex + 1] == other[otherIndex - 1] || this[thisIndex - 1] == other[otherIndex + 1];
         }
 
-        private bool IsOpposed(Triangle other, int thisIndex, int otherIndex)
+        private bool IsEdgeAligned(Triangle other, int thisIndex, int otherIndex)
         {
+            // Aligned at edge & aligned at face orientation
             return this[thisIndex + 1] == other[otherIndex + 1] || this[thisIndex - 1] == other[otherIndex - 1];
         }
 
         public Orientation GetOrientationAt(Triangle other, int v)
         {
+            if (this == other)
+                return Orientation.Unconnected;
+
             int thisIndex = Find(v);
             int otherIndex = other.Find(v);
 
@@ -88,11 +113,11 @@ namespace UnityBitub.Geometry
             {
                 return Orientation.Unconnected;
             }
-            else if (IsAligned(other, thisIndex, otherIndex))
+            else if (IsEdgeOpposed(other, thisIndex, otherIndex))
             {
                 return Orientation.Aligned;
             }
-            else if (IsOpposed(other, thisIndex, otherIndex))
+            else if (IsEdgeAligned(other, thisIndex, otherIndex))
             {
                 return Orientation.Opposed;
             } 
@@ -243,9 +268,9 @@ namespace UnityBitub.Geometry
         /// <summary>
         /// Appends a triangle to mesh buffer.
         /// </summary>
-        /// <param name="a">Know vertex A.</param>
-        /// <param name="b">B</param>
-        /// <param name="c">C</param>
+        /// <param name="a">Some index for first vertex</param>
+        /// <param name="b">Second vertex</param>
+        /// <param name="c">Third vertex</param>
         /// <returns>True, if appended; False if invalid.</returns>
         public bool AppendTriangle(int a, int b, int c)
         {
@@ -352,9 +377,34 @@ namespace UnityBitub.Geometry
             foreach(int index in m_triangles.Keys)
             {
                 var star = m_triangles[index];
-                var correct = star.Find(t => triangles.Contains(t));
+                var trQueue = new Queue<Triangle>(star);
 
+                while(trQueue.Count > 0)
+                {
+                    var nextTriangle = trQueue.Dequeue();
+                    if (!triangles.Contains(nextTriangle))
+                    {
+                        var opposed = star.FindAll(
+                            t => Triangle.Orientation.Opposed == t.GetOrientationAt(nextTriangle, index)
+                        );
+                        if (opposed.Exists(t => triangles.Contains(t)))
+                            throw new TriangleBuilderException(TriangleBuilderException.Cause.InconsistentOrientation);
+
+                        opposed.ForEach(t =>
+                        {
+                            t.Flip();
+                            triangles.Add(t);
+                        });
+
+                        triangles.Add(nextTriangle);
+                    }
+                }
             }
+        }
+
+        private double ComputeVolume()
+        {
+            return 0;
         }
 
         protected void FlushMeshBuffer()
